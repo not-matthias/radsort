@@ -3,11 +3,13 @@ use core::{mem::MaybeUninit, slice};
 use alloc::{boxed::Box, vec::Vec};
 use core::ptr::NonNull;
 use static_alloc::Bump;
+use embedded_alloc::LlffHeap;
 
-static STATIC_BUMP: Bump<[u8; 0x100_000]> = Bump::<[u8; 0x100_000]>::uninit();
+static HEAP: LlffHeap = LlffHeap::empty();
+
+// static STATIC_BUMP: Bump<[u8; 0x100_000]> = Bump::<[u8; 0x100_000]>::uninit();
 
 struct StaticAlloc;
-
 impl StaticAlloc {
     pub const fn new() -> Self {
         Self {}
@@ -16,15 +18,11 @@ impl StaticAlloc {
 
 unsafe impl alloc::alloc::Allocator for StaticAlloc {
     fn allocate(&self, layout: core::alloc::Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
-        STATIC_BUMP.alloc(layout).map(|p: NonNull<u8>| {
-            // Convert to NonNull<[u8]>
-            //
-            unsafe { NonNull::new_unchecked(core::slice::from_raw_parts_mut(p.as_ptr(), layout.size())) }
-        }).ok_or(core::alloc::AllocError)
+        HEAP.allocate(layout)
     }
 
     unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: core::alloc::Layout) {
-        // self.0.dealloc(ptr, layout.size())
+        HEAP.deallocate(ptr, layout)
     }
 }
 
@@ -47,10 +45,24 @@ impl<'a, T> DoubleBuffer<'a, T> {
     ///
     /// The supplied slice becomes the read buffer, the scratch buffer becomes the write buffer.
     pub fn new(slice: &'a mut [T]) -> Self {
+        // Initialize the allocator BEFORE you use it
+        // RUn once
+        static INIT: std::sync::Once = std::sync::Once::new();
+
+        INIT.call_once(|| {
+            {
+                use core::mem::MaybeUninit;
+                const HEAP_SIZE: usize = 0x100_000;
+                static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+                unsafe { HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE) }
+            }
+        });
+
+
         // SAFETY: The Drop impl ensures that the slice is initialized.
         let slice = unsafe { slice_as_uninit_mut(slice) };
         let scratch = {
-            let mut v = Vec::<_, StaticAlloc>::with_capacity_in(slice.len(), StaticAlloc);
+            let mut v = Vec::with_capacity_in(slice.len(), StaticAlloc);
             // SAFETY: we just allocated this capacity and MaybeUninit can be garbage.
             unsafe {
                 v.set_len(slice.len());
