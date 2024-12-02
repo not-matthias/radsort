@@ -14,3 +14,5 @@ readme = "README.md"
 rust-version = "1.60.0"
 
 [dependencies]
+arrayvec = "0.7.6"
+static-alloc = "0.2.5"

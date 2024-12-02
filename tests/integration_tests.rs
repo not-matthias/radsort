@@ -4,7 +4,9 @@ fn sort_bool() {
         true, false, true, true, true, false, true, true, false, false, false,
     ];
     let mut expected = actual;
+    dbg!(&actual);
     radsort::sort(&mut actual);
+    dbg!(&actual);
     expected.sort();
     assert_eq!(actual, expected);
 }

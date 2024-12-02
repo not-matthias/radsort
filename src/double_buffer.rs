@@ -1,6 +1,33 @@
 use core::{mem::MaybeUninit, slice};
 
 use alloc::{boxed::Box, vec::Vec};
+use core::ptr::NonNull;
+use static_alloc::Bump;
+
+static STATIC_BUMP: Bump<[u8; 0x100_000]> = Bump::<[u8; 0x100_000]>::uninit();
+
+struct StaticAlloc;
+
+impl StaticAlloc {
+    pub const fn new() -> Self {
+        Self {}
+    }
+}
+
+unsafe impl alloc::alloc::Allocator for StaticAlloc {
+    fn allocate(&self, layout: core::alloc::Layout) -> Result<NonNull<[u8]>, core::alloc::AllocError> {
+        STATIC_BUMP.alloc(layout).map(|p: NonNull<u8>| {
+            // Convert to NonNull<[u8]>
+            //
+            unsafe { NonNull::new_unchecked(core::slice::from_raw_parts_mut(p.as_ptr(), layout.size())) }
+        }).ok_or(core::alloc::AllocError)
+    }
+
+    unsafe fn deallocate(&self, ptr: NonNull<u8>, layout: core::alloc::Layout) {
+        // self.0.dealloc(ptr, layout.size())
+    }
+}
+
 
 /// Double buffer. Wraps a mutable slice and allocates a scratch memory of the same size, so that
 /// elements can be freely scattered from buffer to buffer.
@@ -11,7 +38,7 @@ use alloc::{boxed::Box, vec::Vec};
 /// elements.
 pub struct DoubleBuffer<'a, T> {
     slice: &'a mut [MaybeUninit<T>],
-    scratch: Box<[MaybeUninit<T>]>,
+    scratch: Box<[MaybeUninit<T>], StaticAlloc>,
     slice_is_write: bool,
 }
 
@@ -23,7 +50,7 @@ impl<'a, T> DoubleBuffer<'a, T> {
         // SAFETY: The Drop impl ensures that the slice is initialized.
         let slice = unsafe { slice_as_uninit_mut(slice) };
         let scratch = {
-            let mut v = Vec::with_capacity(slice.len());
+            let mut v = Vec::<_, StaticAlloc>::with_capacity_in(slice.len(), StaticAlloc);
             // SAFETY: we just allocated this capacity and MaybeUninit can be garbage.
             unsafe {
                 v.set_len(slice.len());

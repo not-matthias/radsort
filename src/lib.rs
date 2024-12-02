@@ -88,7 +88,7 @@
 //! [`sort_by_cached_key`]: ./fn.sort_by_cached_key.html
 //! [`PartialOrd`]: https://doc.rust-lang.org/std/cmp/trait.PartialOrd.html
 
-#![no_std]
+#![feature(allocator_api)]
 
 extern crate alloc;
 
